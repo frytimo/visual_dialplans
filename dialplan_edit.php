@@ -1413,7 +1413,7 @@ require_once "resources/header.php";
 	<div class="heading"><b><?php echo escape($text['title-dialplan_edit']); ?></b></div>
 	<div class="actions">
 		<?php
-		echo button::create(['type' => 'button', 'label' => $text['button-back'], 'icon' => $settings->get('theme', 'button_icon_back'), 'id' => 'btn_back', 'link' => $url->set_path('/app/dialplans/dialplans.php')->unset_query_param('id')->build_absolute()]);
+		echo button::create(['type' => 'button', 'label' => $text['button-back'], 'icon' => $settings->get('theme', 'button_icon_back'), 'id' => 'btn_back', 'link' => $url->set_path('/app/visual_dialplans/dialplans.php')->unset_query_param('id')->build_absolute()]);
 		?>
 
 		<!-- Sync Status Indicator -->
