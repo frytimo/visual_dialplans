@@ -51,3 +51,18 @@ The current dialplan editor uses a hybrid approach where the xml file OR the dia
 The included tool: `php app/visual_dialplans/resources/migrate_to_unified.php` will ensure all dialplans can use the new visual tool.
 
 Once the XML file is saved, this editor will be needed to edit the entry. It is assumed that you will not use the old one once this one is installed.
+
+## Install
+
+**Requires PHP 8.1+ and FusionPBX 5.4 or higher**
+
+```
+cd /var/www/fusionpbx/app
+git clone https://github.com/frytimo/visual_dialplans
+cd /var/www/fusionpbx
+php core/upgrade/upgrade.php --schema
+php core/upgrade/upgrade.php --defaults
+php core/upgrade/upgrade.php --permissions
+php core/upgrade/upgrade.php --menu
+```
+Logout and back in again
