@@ -37,6 +37,12 @@ if (!permission_exists('dialplan_edit') && !permission_exists('dialplan_add')) {
 	$has_dialplan_domain = permission_exists('dialplan_domain');
 	$has_dialplan_xml    = permission_exists('dialplan_xml');
 
+if (!class_exists('url')) {
+	require_once "resources/classes/url.php";
+}
+
+$url = new url();
+
 // add multi-lingual support
 $language = new text;
 $text = $language->get();
@@ -184,14 +190,14 @@ if (!empty($_POST['dialplan_xml']) && !empty($_POST['submit'])) {
 
 	if (!$dialplan_valid) {
 		message::add($text['message-invalid_xml'] ?? 'XML contains invalid or dangerous content.', 'negative');
-		header('Location: dialplan_edit_unified.php?id=' . urlencode($dialplan_uuid) . (!empty($app_uuid) ? '&app_uuid=' . urlencode($app_uuid) : ''));
+		header('Location: dialplan_edit.php?id=' . urlencode($dialplan_uuid) . (!empty($app_uuid) ? '&app_uuid=' . urlencode($app_uuid) : ''));
 		exit;
 	}
 
 	// check for required fields
 	if (empty($dialplan_name)) {
 		message::add($text['message-required'] . $text['label-name'], 'negative');
-		header('Location: dialplan_edit_unified.php?id=' . urlencode($dialplan_uuid) . (!empty($app_uuid) ? '&app_uuid=' . urlencode($app_uuid) : ''));
+		header('Location: dialplan_edit.php?id=' . urlencode($dialplan_uuid) . (!empty($app_uuid) ? '&app_uuid=' . urlencode($app_uuid) : ''));
 		exit;
 	}
 
@@ -244,7 +250,7 @@ if (!empty($_POST['dialplan_xml']) && !empty($_POST['submit'])) {
 	}
 
 	// redirect
-	header('Location: dialplan_edit_unified.php?id=' . urlencode($dialplan_uuid) . (!empty($app_uuid) ? '&app_uuid=' . urlencode($app_uuid) : ''));
+	header('Location: dialplan_edit.php?id=' . urlencode($dialplan_uuid) . (!empty($app_uuid) ? '&app_uuid=' . urlencode($app_uuid) : ''));
 	exit;
 }
 
@@ -1679,10 +1685,16 @@ require_once "resources/header.php";
 	'actions' => button::create(['type' => 'button', 'label' => $text['button-save'], 'icon' => 'check', 'style' => 'float: right; margin-left: 15px;', 'onclick' => 'confirmSave();'])
 ]); ?>
 
+<?php
+$dialplan_parser_version = md5_file(__DIR__ . '/resources/javascript/dialplan_parser.js');
+$dialplan_linter_version = md5_file(__DIR__ . '/resources/javascript/dialplan_linter.js');
+$dialplan_lint_rules_version = md5_file(__DIR__ . '/resources/javascript/dialplan_lint_rules.js');
+?>
+
 <script type="text/javascript" src="<?php echo PROJECT_PATH; ?>/resources/ace/ace.js" charset="utf-8"></script>
-<script type="text/javascript" src="<?php echo PROJECT_PATH; ?>/resources/javascript/dialplan_parser.js?v=<?php echo time(); ?>"></script>
-<script type="text/javascript" src="<?php echo PROJECT_PATH; ?>/resources/javascript/dialplan_linter.js?v=<?php echo time(); ?>"></script>
-<script type="text/javascript" src="<?php echo PROJECT_PATH; ?>/resources/javascript/dialplan_lint_rules.js?v=<?php echo time(); ?>"></script>
+<script type="text/javascript" src="resources/javascript/dialplan_parser.js?v=<?php echo $dialplan_parser_version; ?>"></script>
+<script type="text/javascript" src="resources/javascript/dialplan_linter.js?v=<?php echo $dialplan_linter_version; ?>"></script>
+<script type="text/javascript" src="resources/javascript/dialplan_lint_rules.js?v=<?php echo $dialplan_lint_rules_version; ?>"></script>
 
 <script type="text/javascript">
 (function() {

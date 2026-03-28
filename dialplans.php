@@ -59,6 +59,12 @@ $has_time_condition_add    = permission_exists('time_condition_add');
 $has_time_condition_delete = permission_exists('time_condition_delete');
 $has_time_condition_edit   = permission_exists('time_condition_edit');
 
+if (!class_exists('url')) {
+	require_once "resources/classes/url.php";
+}
+
+$url = new url();
+
 // add multi-lingual support
 $text = new text()->get();
 
