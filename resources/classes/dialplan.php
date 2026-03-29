@@ -24,6 +24,17 @@
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
+// Declare app class when not in playground
+if (!class_exists('app')) {
+	class app {
+		protected $database;
+		protected $settings;
+		public function __construct() {
+			// Placeholder constructor for the app class
+		}
+	}
+}
+
 //define the dialplan class
 class dialplan extends app implements clear_cache {
 
@@ -111,6 +122,63 @@ class dialplan extends app implements clear_cache {
 	}
 
 	/**
+	 * Compatibility layer for old code calls
+	 *
+	 * @param mixed $name Name of the property being accessed
+	 *
+	 * @return mixed The value of the requested property, or null if the property does not exist
+	 */
+	public function __get($name) {
+		switch ($name) {
+			case 'app_name':
+				return self::app_name;
+			case 'app_uuid':
+				return self::app_uuid;
+			case 'list_page':
+				return self::LIST_PAGE;
+			case 'permission_prefix':
+				return self::PERMISSION_PREFIX;
+			case 'table':
+				return self::TABLE;
+			case 'toggle_field':
+				return self::TOGGLE_FIELD;
+			case 'toggle_values':
+				return self::TOGGLE_VALUES;
+			case 'uuid_prefix':
+				return self::UUID_PREFIX;
+			default:
+				return null;
+		}
+	}
+
+	/**
+	 * Compatibility layer for old code calls
+	 *
+	 * @param mixed $name  Name of the property being set
+	 * @param mixed $value Value to set the property to
+	 *
+	 * @return void No return value, as this method is used for setting properties on the object
+	 */
+	public function __set($name, $value) {
+		switch ($name) {
+			case 'app_name':
+			case 'app_uuid':
+			case 'list_page':
+			case 'permission_prefix':
+			case 'table':
+			case 'toggle_field':
+			case 'toggle_values':
+			case 'uuid_prefix':
+				// these properties are read-only, do not allow setting
+				break;
+			default:
+				if (property_exists($this, $name)) {
+					$this->$name = $value;
+				}
+		}
+	}
+
+	/**
 	 * Checks if a specific dialplan exists in the database.
 	 *
 	 * @return bool True if the dialplan exists, False otherwise
@@ -139,35 +207,6 @@ class dialplan extends app implements clear_cache {
 
 		//get the array of xml files
 		$xml_list = glob(dirname(__DIR__, 4) . "/*/*/resources/switch/conf/dialplan/*.xml");
-
-		//add a band-aid for CLI editors with faulty syntax highlighting
-		/* **/
-
-		//build the dialplan xml array
-		/*
-		foreach ($xml_list as $xml_file) {
-			$xml_string = file_get_contents($xml_file);
-
-			//prepare the xml
-			if (!empty($xml_string)) {
-				//replace the variables
-					$length = (is_numeric($this->settings->get('security', 'pin_length'))) ? $this->settings->get('security', 'pin_length') : 8;
-					$xml_string = str_replace("{v_context}", $domain['domain_name'], $xml_string);
-					$xml_string = str_replace("{v_pin_number}", generate_password($length, 1), $xml_string);
-				//convert the xml string to an xml object
-					$xml = simplexml_load_string($xml_string);
-				//convert to json
-					$json = json_encode($xml);
-				//convert to an array
-					$dialplan = json_decode($json, true);
-			}
-			if (!empty($this->json)) {
-				//convert to an array
-					$dialplan = json_decode($json, true);
-			}
-			$_SESSION['dialplans']['default'][] = $dialplan;
-		}
-		*/
 
 		//loop through each domain
 		if (!empty($domains) && is_array($domains) && @sizeof($domains) != 0) {

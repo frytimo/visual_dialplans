@@ -63,7 +63,7 @@ if (!class_exists('url')) {
 	require_once "resources/classes/url.php";
 }
 
-$url = new url();
+$url = url::from_request($settings);
 
 // add multi-lingual support
 $text = new text()->get();

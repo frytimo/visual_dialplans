@@ -42,6 +42,7 @@ class url {
 	// Source identifiers stored as metadata inside $request_params entries
 	private const SOURCE_POST  = 'post';
 	private const SOURCE_INPUT = 'input';
+	private const SOURCE_REQUEST = 'request';
 
 	private $parts;
 	private $scheme;
@@ -162,12 +163,18 @@ class url {
 	 * form values, and also reads php://input for JSON or form-encoded bodies
 	 * (e.g. REST API calls that bypass the traditional POST superglobal).
 	 *
+	 * Pass $settings to enable paging support: rows_per_page is read from the
+	 * domain settings and the 'page' query parameter is converted to the
+	 * correct 0-based internal page index so offset() returns the right value.
+	 *
+	 * @param settings|null $settings Optional settings object for paging initialization.
 	 * @return static
 	 */
-	public static function from_request(): static {
-		$url = new static($_SERVER['REQUEST_URI'] ?? '');
+	public static function from_request(?settings $settings = null): static {
+		$url = new static($_SERVER['REQUEST_URI'] ?? '', null, $settings);
 		$url->load_post($_POST);
 		$url->load_input();
+		$url->load_request($_REQUEST);
 
 		return $url;
 	}
@@ -868,13 +875,14 @@ class url {
 	}
 
 	// -------------------------------------------------------------------------
-	// Inbound request data  (POST form values and php://input bodies)
+	// Inbound request data  (POST form values, php://input bodies, and $_REQUEST fallback)
 	//
 	// These are kept strictly separate from $params (the URL query store) so
 	// POST/body data never leaks into generated links.
 	//
 	// Priority rule: POST wins over php://input when the same key appears in
-	// both.  URL query params are not stored here; get() checks $params first
+	// both.  $_REQUEST is loaded as a fallback source for keys that were not
+	// already provided by POST/php://input. URL query params are not stored here; get() checks $params first
 	// before falling through to $request_params.
 	// -------------------------------------------------------------------------
 
@@ -890,7 +898,7 @@ class url {
 	 * array is always preserved in the UNSAFE slot.
 	 *
 	 * @param array  $data      Input key/value pairs.
-	 * @param string $source    self::SOURCE_POST or self::SOURCE_INPUT.
+	 * @param string $source    self::SOURCE_POST, self::SOURCE_INPUT, or self::SOURCE_REQUEST.
 	 * @param bool   $overwrite When false, existing keys are left untouched
 	 *                          so POST values are not clobbered by later input.
 	 */
@@ -1068,6 +1076,21 @@ class url {
 			parse_str($raw, $params);
 			$this->import_request_params($params, self::SOURCE_INPUT, false);
 		}
+
+		return $this;
+	}
+
+	/**
+	 * Loads $_REQUEST data as a fallback source.
+	 *
+	 * Only fills keys that are not already present from POST/php://input.
+	 * GET values are still read from URL query params ($this->params) first.
+	 *
+	 * @param array $request Typically $_REQUEST.
+	 * @return static
+	 */
+	public function load_request(array $request): static {
+		$this->import_request_params($request, self::SOURCE_REQUEST, false);
 
 		return $this;
 	}
