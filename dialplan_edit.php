@@ -2674,14 +2674,6 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			// Define button configs: [type, displayName, actualType, isRegexCondition]
 			const buttonConfigs = [];
 
-			if (isRegexCondition) {
-				// Regex condition can have regex children
-				buttonConfigs.push(['regex', 'Regex', 'regex', false]);
-				// Inside a regex condition, "Regex Cond" should add another regex row,
-				// not a nested regex-condition wrapper.
-				buttonConfigs.push(['regex-condition', 'Regex Cond', 'regex', false]);
-			}
-
 			// Both can have actions and anti-actions
 			buttonConfigs.push(['action', 'Action', 'action', false]);
 			buttonConfigs.push(['anti-action', 'Anti-action', 'anti-action', false]);
@@ -2689,6 +2681,14 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 
 			// Both can have nested conditions
 			buttonConfigs.push(['condition', 'Condition', 'condition', false]);
+
+			if (isRegexCondition) {
+				// Inside a regex condition, "Regex Cond" creates another regex-condition
+				// wrapper with an initial regex child.
+				buttonConfigs.push(['regex-condition', 'Regex Cond', 'condition', true]);
+				// Regex condition can have regex children.
+				buttonConfigs.push(['regex', 'Regex Field', 'regex', false]);
+			}
 
 			// Only regular conditions can create nested regex-condition wrappers.
 			if (!isRegexCondition) {
