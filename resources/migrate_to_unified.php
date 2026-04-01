@@ -66,5 +66,26 @@ if ($dry_run) {
 $sql_update = "UPDATE v_dialplans SET dialplan_editor_version = 'unified' WHERE dialplan_editor_version IS DISTINCT FROM 'unified'";
 $database->execute($sql_update);
 
+// Update the default settings to use xml files only
+$sql_update_settings = "UPDATE v_default_settings
+							SET default_setting_value = 'false'
+							, default_setting_enabled = 'true'
+						WHERE
+							default_setting_category = 'dialplan_details'
+";
+$database->execute($sql_update_settings);
+
+// Clear the dialplan details table
+$sql_delete_details = "DELETE FROM v_dialplan_details";
+$database->execute($sql_delete_details);
+
+// Call the app defaults upgrade script to rewrite xml files and lua scripts
+$domain = new domains;
+$domain->upgrade();
+
+// Flush the cache to ensure changes are reflected
+$cache = new cache();
+$cache->flush();
+
 echo "Done. {$total} dialplan(s) marked as unified.\n";
 exit(0);

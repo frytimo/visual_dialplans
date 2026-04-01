@@ -6,13 +6,14 @@ The Visual Dialplans app is a part my extensions library for FusionPBX, designed
 ## Features
 - **Automatic synchronization**: Automatically synchronized XML file as you update the drag-and-drop elements of the dialplan.
 - **Simple rule checking**: Checks for simple mistakes and gives error notifications.
+- **Extendable rules**: Allows adding custom rules by creating a file in your `resources/javascript/dialplan_lint_rules.js` file.
 - **Dialplan Management**: Users can add, edit, and delete dialplans.
 - **Context Filtering**: Users can filter dialplans by context to manage specific sets of rules.
 - **Search Functionality**: Users can search for dialplans by name, number, or description.
 - **Toggle Enabled/Disabled**: Users can enable or disable dialplans as needed.
 
 ## Usage
-1. **Access the App**: Navigate to the Visual Dialplans section in the FusionPBX dashboard.
+1. **Access the App**: Navigate to the Visual Dialplans section in the FusionPBX menu under *Dialplans*.
 2. **View Dialplans**: The app displays a list of all dialplans, with options to filter and search.
 3. **Edit Dialplans**: Click on a dialplan to edit its settings.
 4. **Add New Dialplans**: Use the "Add" button to create new dialplan configurations.
@@ -46,11 +47,11 @@ The Visual Dialplans app is a part my extensions library for FusionPBX, designed
   - ![Error](docs/images/error.png)
 
 ## Migrate
-The current dialplan editor uses a hybrid approach where the xml file OR the dialplan details can determine the final xml values used depending on which one was last saved. This version uses a single authority of the XML file as the ultimate authority.
+The original FusionPBX dialplan editor uses a hybrid approach where the xml file OR the dialplan details can determine the final xml values used depending on which one was last saved. This version uses a single authority of the xml file as the ultimate authority.
 
 The included tool: `php app/visual_dialplans/resources/migrate_to_unified.php` will ensure all dialplans can use the new visual tool.
 
-Once the XML file is saved, this editor will be needed to edit the entry. It is assumed that you will not use the old one once this one is installed.
+Once the xml file is saved using this editor, the dialplan details are removed and xml file is the only source of editing the dialplan entry. It is assumed that you will not use the old one once this one is installed.
 
 ## Install
 
