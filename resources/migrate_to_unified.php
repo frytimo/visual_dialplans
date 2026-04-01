@@ -71,8 +71,7 @@ $sql_update_settings = "UPDATE v_default_settings
 							SET default_setting_value = 'false'
 							, default_setting_enabled = 'true'
 						WHERE
-							default_setting_category = 'destinations'
-							AND default_setting_subcategory = 'dialplan_details'
+							default_setting_uuid = '911412de-e0a6-49db-a3c8-65f05c9d847f'
 ";
 $database->execute($sql_update_settings);
 
