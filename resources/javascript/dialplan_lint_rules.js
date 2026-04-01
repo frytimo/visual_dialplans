@@ -255,6 +255,72 @@ var DialplanLintRules = (function () {
                 });
                 return findings;
             }
+        },
+
+        // ── Rule 7 ───────────────────────────────────────────────────────────
+        // In a regex condition using regex="any", an enabled <regex> child
+        // with an empty expression will match trivially, causing the parent
+        // condition to pass regardless of the other regex children.
+        {
+            id:          'regex-any-empty-expression',
+            severity:    'warning',
+            description: 'Regex condition uses regex="any" and contains an empty regex expression',
+            check: function (tree) {
+                var findings = [];
+                walkNodes(tree.children, function (node) {
+                    if (node.type !== 'condition' || node.enabled === false) return;
+                    if (!(node.isRegexCondition || (node.attributes && node.attributes.regex))) return;
+                    if (((node.attributes && node.attributes.regex) || 'all') !== 'any') return;
+
+                    var children = node.children || [];
+                    var hasEmptyRegexExpr = children.some(function (child) {
+                        return child &&
+                            child.type === 'regex' &&
+                            child.enabled !== false &&
+                            !String((child.attributes && child.attributes.expression) || '').trim();
+                    });
+
+                    if (hasEmptyRegexExpr) {
+                        findings.push({
+                            node:    node,
+                            message: 'Regex condition uses "any" and has a regex row with an empty expression, so the parent condition can match regardless of the other regex rows'
+                        });
+                    }
+                });
+                return findings;
+            }
+        },
+
+        // ── Rule 8 ───────────────────────────────────────────────────────────
+        // An enabled regex row with an empty expression matches trivially.
+        // Under regex="all" or regex="xor" it contributes nothing useful;
+        // under regex="any" it makes the parent condition always pass.
+        {
+            id:          'regex-empty-expression-noop',
+            severity:    'warning',
+            description: 'Regex row has an empty expression',
+            check: function (tree) {
+                var findings = [];
+                walkNodes(tree.children, function (node, siblings, parentNode) {
+                    if (node.type !== 'regex' || node.enabled === false) return;
+                    if (!parentNode || parentNode.type !== 'condition') return;
+                    if (!(parentNode.isRegexCondition || (parentNode.attributes && parentNode.attributes.regex))) return;
+
+                    var expression = String((node.attributes && node.attributes.expression) || '').trim();
+                    if (expression) return;
+
+                    var regexMode = String((parentNode.attributes && parentNode.attributes.regex) || 'all');
+                    var message = (regexMode === 'any')
+                        ? 'Empty expression matches trivially and makes the parent regex="any" condition pass regardless of the other regex rows'
+                        : 'Empty expression matches trivially, so this regex row is effectively a no-op';
+
+                    findings.push({
+                        node:    node,
+                        message: message
+                    });
+                });
+                return findings;
+            }
         }
 
     ];

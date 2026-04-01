@@ -24,7 +24,7 @@
  * Condition attributes (regular):  { field, expression, break }
  * Condition attributes (regex):    { regex, break }
  * Action/Anti-action attributes:   { application, data, inline }
- * Regex child attributes:          { field, expression, break }
+ * Regex child attributes:          { field, expression }
  * Comment attributes:              { text }
  */
 var DialplanParser = (function () {
@@ -439,10 +439,6 @@ var DialplanParser = (function () {
         var field      = escapeAttr((node.attributes && node.attributes.field)      || '');
         var expression = escapeAttr((node.attributes && node.attributes.expression) || '');
         var attrs  = ' field="' + field + '" expression="' + expression + '"';
-        var brk = (node.attributes && node.attributes.break) || '';
-        if (brk) {
-            attrs += ' break="' + escapeAttr(brk) + '"';
-        }
         var tag = '<regex' + attrs + '/>';
         if (node.enabled === false) {
             return indent + '<!--' + tag + '-->\n';

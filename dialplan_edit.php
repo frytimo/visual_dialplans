@@ -2198,7 +2198,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 				// Auto-add a regex child since regex conditions require at least one
 				newNode.children.push({
 					type: 'regex',
-					attributes: { field: '', expression: '', break: '' },
+					attributes: { field: '', expression: '' },
 					enabled: true
 				});
 			}
@@ -2581,11 +2581,6 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 				node.attributes.expression = val;
 				updateXmlFromTree();
 			}, null, 'field-data'));
-			form.appendChild(createBreakButtonGroup(node.attributes.break || '', function(val) {
-				node.attributes.break = val;
-				updateXmlFromTree();
-				updateGateConditionIndicators();
-			}));
 
 		} else if (node.type === 'action' || node.type === 'anti-action') {
 			form.appendChild(createFormField('Application', 'application', node.attributes.application || '', function(val) {
@@ -2682,6 +2677,9 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			if (isRegexCondition) {
 				// Regex condition can have regex children
 				buttonConfigs.push(['regex', 'Regex', 'regex', false]);
+				// Inside a regex condition, "Regex Cond" should add another regex row,
+				// not a nested regex-condition wrapper.
+				buttonConfigs.push(['regex-condition', 'Regex Cond', 'regex', false]);
 			}
 
 			// Both can have actions and anti-actions
@@ -2692,8 +2690,10 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			// Both can have nested conditions
 			buttonConfigs.push(['condition', 'Condition', 'condition', false]);
 
-			// Both can have nested regex conditions
-			buttonConfigs.push(['regex-condition', 'Regex Cond', 'condition', true]);
+			// Only regular conditions can create nested regex-condition wrappers.
+			if (!isRegexCondition) {
+				buttonConfigs.push(['regex-condition', 'Regex Cond', 'condition', true]);
+			}
 
 			buttonConfigs.forEach(function(config) {
 				const btnType = config[0];
@@ -2718,13 +2718,13 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 							// Auto-add a regex child since regex conditions require at least one
 							newNode.children.push({
 								type: 'regex',
-								attributes: { field: '', expression: '', break: '' },
+								attributes: { field: '', expression: '' },
 								enabled: true
 							});
 						}
 					} else if (actualType === 'regex') {
 						// Regex child element - just field/expression, no children
-						newNode.attributes = { field: '', expression: '', break: '' };
+						newNode.attributes = { field: '', expression: '' };
 					} else if (actualType === 'comment') {
 						newNode.attributes = { text: '' };
 					} else {
@@ -3493,7 +3493,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 				// Auto-add a regex child since regex conditions require at least one
 				newNode.children.push({
 					type: 'regex',
-					attributes: { field: '', expression: '', break: '' },
+					attributes: { field: '', expression: '' },
 					enabled: true
 				});
 			}
