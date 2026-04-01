@@ -995,13 +995,18 @@ require_once "resources/header.php";
 }
 
 /* Compact button group (BREAK, REGEX mode) — rocker style */
-.compact-btn-group-wrapper {
-	flex: 0 0 auto;
-	min-width: 130px;
+.dialplan-node-form > .compact-btn-group-wrapper {
+	flex: 0 1 320px;
+	min-width: 260px;
 }
 
-.compact-btn-group-wrapper.regex-mode-wrapper {
-	min-width: 100px;
+.dialplan-node-form > .compact-btn-group-wrapper.regex-mode-wrapper {
+	flex-basis: 240px;
+	min-width: 195px;
+}
+
+.dialplan-node-form > .compact-btn-group-wrapper.break-right-wrapper {
+	margin-left: auto;
 }
 
 .compact-btn-group {
@@ -1010,11 +1015,11 @@ require_once "resources/header.php";
 }
 
 .compact-btn {
-	padding: 2px 4px;
+	padding: 3px 7px;
 	padding-top: 7px;
-	font-size: 9px;
+	font-size: 10px;
 	height: auto;
-	min-height: 28px;
+	min-height: 30px;
 	line-height: 1.2;
 	border-radius: 3px;
 	/* Raised / out state */
@@ -2488,7 +2493,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 				form.appendChild(createBreakButtonGroup(node.attributes.break || '', function(val) {
 					node.attributes.break = val;
 					updateXmlFromTree();
-				}));
+				}, 'compact-btn-group-wrapper break-right-wrapper'));
 			} else {
 				// Regular Condition - shows Field, Expression, Break
 				form.appendChild(createFormField('Field', 'field', node.attributes.field || '', function(val) {
@@ -2781,7 +2786,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	// 'on-false' is the FreeSWITCH default (omitted attribute), so we display it
 	// as selected when the stored value is empty, and store '' when it is chosen
 	// so the XML generator omits the attribute (keeping the XML minimal).
-	function createBreakButtonGroup(currentValue, onChange) {
+	function createBreakButtonGroup(currentValue, onChange, wrapperClass) {
 		var displayValue = currentValue || 'on-false';
 		function wrappedOnChange(val) {
 			// 'on-false' is the default — store as '' so the attribute is omitted from XML
@@ -2792,7 +2797,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			 {value: 'on-false', label: 'On<br>False', title: 'on-false (default)'},
 			 {value: 'always', label: 'always', title: 'always'},
 			 {value: 'never', label: 'never', title: 'never'}],
-			displayValue, wrappedOnChange, undefined, true);
+			displayValue, wrappedOnChange, wrapperClass, true);
 	}
 
 	// Generic compact button group (BREAK, REGEX mode, etc.)
