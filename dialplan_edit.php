@@ -576,6 +576,11 @@ require_once "resources/header.php";
 	color: #a94442;
 }
 
+.history-action[disabled] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
 /* Visual tree nodes - compact layout */
 .dialplan-node {
 	margin: 4px 0;
@@ -1530,6 +1535,11 @@ require_once "resources/header.php";
 		</span>
 		<span id="lint-summary"></span>
 
+			<?php
+			echo button::create(['type' => 'button', 'label' => $text['button-undo'] ?? 'Undo', 'icon' => 'undo', 'id' => 'btn_undo', 'style' => 'margin-left: 15px;', 'onclick' => 'undoHistory();']);
+			echo button::create(['type' => 'button', 'label' => $text['button-redo'] ?? 'Redo', 'icon' => 'repeat', 'id' => 'btn_redo', 'style' => 'margin-left: 5px;', 'onclick' => 'redoHistory();']);
+			?>
+
 		<?php
 		echo button::create(['type' => 'submit', 'label' => $text['button-save'], 'icon' => $settings->get('theme', 'button_icon_save'), 'id' => 'btn_save', 'name' => 'submit', 'value' => 'save', 'style' => 'margin-left: 15px;']);
 		?>
@@ -1870,6 +1880,232 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	let xmlPanelVisible = <?php echo $xml_panel_visible ? 'true' : 'false'; ?>;
 	let skipAceChange = false;
 	let propertiesCollapsed = false; // Start expanded so properties are visible
+	let historyStack = [];
+	let historyIndex = -1;
+	let historyRestoreInProgress = false;
+	let historyPushTimer = null;
+	let pendingXmlHistoryCommit = false;
+	const maxHistoryEntries = 80;
+	const historyDebounceMs = 450;
+
+	function val(id) {
+		const el = document.getElementById(id);
+		return el ? el.value : '';
+	}
+
+	function setPropertyToggleUi(fieldName, rawValue) {
+		const value = rawValue === 'true' ? 'true' : 'false';
+		const hiddenInput = document.getElementById(fieldName);
+		const toggle = document.getElementById(fieldName + '_toggle');
+		const label = document.getElementById(fieldName + '_label');
+
+		if (hiddenInput) hiddenInput.value = value;
+		if (toggle) toggle.checked = value === 'true';
+		if (label) {
+			label.textContent = value === 'true'
+				? '<?php echo $text['option-true'] ?? 'True'; ?>'
+				: '<?php echo $text['option-false'] ?? 'False'; ?>';
+		}
+	}
+
+	function syncDialplanEnabledUi(rawValue) {
+		const value = rawValue === 'true' ? 'true' : 'false';
+		const hiddenInput = document.getElementById('dialplan_enabled');
+		const toggle = document.getElementById('dialplan_enabled_toggle');
+		const label = document.getElementById('dialplan_enabled_label');
+		const overlay = document.getElementById('visual-disabled-overlay');
+
+		if (hiddenInput) hiddenInput.value = value;
+		if (toggle) toggle.checked = value === 'true';
+		if (label) {
+			label.textContent = value === 'true'
+				? '<?php echo $text['option-true'] ?? 'True'; ?>'
+				: '<?php echo $text['option-false'] ?? 'False'; ?>';
+		}
+		if (overlay) {
+			overlay.classList.toggle('hidden', value === 'true');
+		}
+	}
+
+	function getMetadataState() {
+		return {
+			name: val('dialplan_name'),
+			number: val('dialplan_number'),
+			context: val('dialplan_context'),
+			continue: val('dialplan_continue'),
+			order: val('dialplan_order'),
+			destination: val('dialplan_destination'),
+			enabled: val('dialplan_enabled'),
+			description: val('dialplan_description'),
+			domain_uuid: val('domain_uuid')
+		};
+	}
+
+	function applyMetadataState(meta) {
+		if (!meta) return;
+		const setValue = function(id, value) {
+			const el = document.getElementById(id);
+			if (el) el.value = value || '';
+		};
+
+		setValue('dialplan_name', meta.name);
+		setValue('dialplan_number', meta.number);
+		setValue('dialplan_context', meta.context);
+		setValue('dialplan_order', meta.order);
+		setValue('dialplan_description', meta.description);
+		if (document.getElementById('domain_uuid')) {
+			setValue('domain_uuid', meta.domain_uuid);
+		}
+
+		setPropertyToggleUi('dialplan_continue', meta.continue);
+		setPropertyToggleUi('dialplan_destination', meta.destination);
+		syncDialplanEnabledUi(meta.enabled);
+	}
+
+	function getHistorySnapshot() {
+		if (!editor) return null;
+		return {
+			xml: editor.getValue(),
+			tree: tree ? JSON.stringify(tree) : '',
+			meta: getMetadataState()
+		};
+	}
+
+	function snapshotsEqual(a, b) {
+		if (!a || !b) return false;
+		return a.xml === b.xml
+			&& a.tree === b.tree
+			&& JSON.stringify(a.meta) === JSON.stringify(b.meta);
+	}
+
+	function updateHistoryButtons() {
+		const undoBtn = document.getElementById('btn_undo');
+		const redoBtn = document.getElementById('btn_redo');
+		if (undoBtn) {
+			undoBtn.disabled = historyIndex <= 0;
+			undoBtn.classList.add('history-action');
+		}
+		if (redoBtn) {
+			redoBtn.disabled = historyIndex >= historyStack.length - 1;
+			redoBtn.classList.add('history-action');
+		}
+	}
+
+	function pushHistorySnapshot() {
+		if (historyRestoreInProgress) return;
+		const snapshot = getHistorySnapshot();
+		if (!snapshot) return;
+
+		const currentSnapshot = historyIndex >= 0 ? historyStack[historyIndex] : null;
+		if (currentSnapshot && snapshotsEqual(currentSnapshot, snapshot)) {
+			updateHistoryButtons();
+			return;
+		}
+
+		if (historyIndex < historyStack.length - 1) {
+			historyStack = historyStack.slice(0, historyIndex + 1);
+		}
+
+		historyStack.push(snapshot);
+		if (historyStack.length > maxHistoryEntries) {
+			historyStack.shift();
+		} else {
+			historyIndex++;
+		}
+
+		if (historyIndex >= historyStack.length) {
+			historyIndex = historyStack.length - 1;
+		}
+
+		updateHistoryButtons();
+	}
+
+	function clearPendingHistorySnapshot() {
+		if (historyPushTimer) {
+			clearTimeout(historyPushTimer);
+			historyPushTimer = null;
+		}
+	}
+
+	function scheduleHistorySnapshot(delay) {
+		if (historyRestoreInProgress) return;
+		clearPendingHistorySnapshot();
+		historyPushTimer = setTimeout(function() {
+			historyPushTimer = null;
+			pushHistorySnapshot();
+		}, typeof delay === 'number' ? delay : historyDebounceMs);
+	}
+
+	function flushPendingHistorySnapshot() {
+		if (!historyPushTimer) return;
+		clearPendingHistorySnapshot();
+		pushHistorySnapshot();
+	}
+
+	function restoreHistorySnapshot(snapshot) {
+		if (!snapshot || !editor) return;
+
+		historyRestoreInProgress = true;
+		clearPendingHistorySnapshot();
+		pendingXmlHistoryCommit = false;
+
+		applyMetadataState(snapshot.meta);
+		tree = snapshot.tree ? JSON.parse(snapshot.tree) : null;
+		if (tree && tree.attributes) {
+			tree.attributes.name = val('dialplan_name');
+			tree.attributes.continue = val('dialplan_continue') || 'false';
+		}
+
+		skipAceChange = true;
+		editor.setValue(snapshot.xml || '', -1);
+		skipAceChange = false;
+
+		if (tree) {
+			renderTree();
+			updateGateConditionIndicators();
+			runLinter();
+			setSyncState('synced');
+		} else {
+			syncTreeFromEditorXml();
+		}
+
+		checkDirtyState();
+		notifyPopupDirtyState();
+		if (xmlChannel) {
+			xmlChannel.postMessage({ type: 'xml-init', xml: editor.getValue() });
+		}
+
+		historyRestoreInProgress = false;
+		updateHistoryButtons();
+	}
+
+	function resetHistory() {
+		clearPendingHistorySnapshot();
+		pendingXmlHistoryCommit = false;
+		historyStack = [];
+		historyIndex = -1;
+		pushHistorySnapshot();
+	}
+
+	window.undoHistory = function() {
+		flushPendingHistorySnapshot();
+		if (historyIndex <= 0) {
+			updateHistoryButtons();
+			return;
+		}
+		historyIndex--;
+		restoreHistorySnapshot(historyStack[historyIndex]);
+	};
+
+	window.redoHistory = function() {
+		flushPendingHistorySnapshot();
+		if (historyIndex >= historyStack.length - 1) {
+			updateHistoryButtons();
+			return;
+		}
+		historyIndex++;
+		restoreHistorySnapshot(historyStack[historyIndex]);
+	};
 
 	// Toggle properties panel
 	window.togglePropertiesPanel = function() {
@@ -1901,56 +2137,38 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	window.domainChanged = function(selectEl) {
 		const contextInput = document.getElementById('dialplan_context');
 		if (!contextInput) return;
+		flushPendingHistorySnapshot();
 		const newDomainName = domainNameMap[selectEl.value] ?? '';
 		// Only overwrite context if it currently matches a known domain name (was following domain)
 		const knownNames = Object.values(domainNameMap);
 		if (knownNames.includes(contextInput.value)) {
 			contextInput.value = newDomainName;
 		}
+		checkDirtyState();
+		scheduleHistorySnapshot();
 	};
 
 	// Update property toggle (for Continue and Destination)
 	window.updatePropertyToggle = function(fieldName, isChecked) {
-		const hiddenInput = document.getElementById(fieldName);
-		const label = document.getElementById(fieldName + '_label');
-
-		if (hiddenInput) {
-			hiddenInput.value = isChecked ? 'true' : 'false';
-		}
-		if (label) {
-			label.textContent = isChecked ? '<?php echo $text['option-true'] ?? 'True'; ?>' : '<?php echo $text['option-false'] ?? 'False'; ?>';
-		}
+		flushPendingHistorySnapshot();
+		setPropertyToggleUi(fieldName, isChecked ? 'true' : 'false');
 		// For continue (part of extension XML), regenerate XML to keep ACE in sync.
 		// For other metadata fields (destination), compare against saved baseline.
 		if (fieldName === 'dialplan_continue' && tree) {
 			updateXmlFromTree();
+			scheduleHistorySnapshot();
 		} else {
 			checkDirtyState();
+			scheduleHistorySnapshot();
 		}
 	};
 
 	// Update dialplan enabled state - controls visual editor availability
 	window.updateDialplanEnabled = function(isChecked) {
-		const hiddenInput = document.getElementById('dialplan_enabled');
-		const label = document.getElementById('dialplan_enabled_label');
-		const overlay = document.getElementById('visual-disabled-overlay');
-
-		if (hiddenInput) {
-			hiddenInput.value = isChecked ? 'true' : 'false';
-		}
-		if (label) {
-			label.textContent = isChecked ? '<?php echo $text['option-true'] ?? 'True'; ?>' : '<?php echo $text['option-false'] ?? 'False'; ?>';
-		}
-
-		// Show/hide the visual editor disabled overlay
-		if (overlay) {
-			if (isChecked) {
-				overlay.classList.add('hidden');
-			} else {
-				overlay.classList.remove('hidden');
-			}
-		}
+		flushPendingHistorySnapshot();
+		syncDialplanEnabledUi(isChecked ? 'true' : 'false');
 		checkDirtyState();
+		scheduleHistorySnapshot();
 	};
 
 	// Dismiss migration warning
@@ -2000,7 +2218,24 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 		editor.on('change', function() {
 			if (skipAceChange) return;
 			checkDirtyState();
+			pendingXmlHistoryCommit = true;
 			debouncedSyncFromXml();
+		});
+
+		editor.commands.addCommand({
+			name: 'dialplanEditorUndo',
+			bindKey: { win: 'Ctrl-Z', mac: 'Command-Z' },
+			exec: function() {
+				window.undoHistory();
+			}
+		});
+
+		editor.commands.addCommand({
+			name: 'dialplanEditorRedo',
+			bindKey: { win: 'Ctrl-Shift-Z|Ctrl-Y', mac: 'Command-Shift-Z|Command-Y' },
+			exec: function() {
+				window.redoHistory();
+			}
 		});
 
 		// Remove certain keyboard shortcuts
@@ -2020,6 +2255,8 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			};
 			renderTree();
 		}
+
+		resetHistory();
 	}
 
 	// Set dirty/saved state and update the status badge
@@ -2075,13 +2312,15 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 		if (!editor || savedXml === null) return;
 		let dirty = editor.getValue() !== savedXml;
 		if (!dirty && savedMeta) {
-			const val = function(id) { const el = document.getElementById(id); return el ? el.value : ''; };
 			dirty = val('dialplan_name')    !== (savedMeta.name        || '')
 			     || val('dialplan_number')  !== (savedMeta.number      || '')
 			     || val('dialplan_context') !== (savedMeta.context     || '')
 			     || val('dialplan_order')   !== (savedMeta.order       || '')
 			     || val('dialplan_destination') !== (savedMeta.destination || '')
-			     || val('dialplan_enabled') !== (savedMeta.enabled     || '');
+			     || val('dialplan_enabled') !== (savedMeta.enabled     || '')
+			     || val('dialplan_description') !== (savedMeta.description || '')
+			     || val('domain_uuid') !== (savedMeta.domain_uuid || '')
+			     || val('dialplan_continue') !== (savedMeta.continue || '');
 		}
 		isDirty = dirty;
 		setDirtyState(isDirty);
@@ -2094,15 +2333,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	function recordSavedBaseline() {
 		if (!editor) return;
 		savedXml = editor.getValue();
-		const val = function(id) { const el = document.getElementById(id); return el ? el.value : ''; };
-		savedMeta = {
-			name:        val('dialplan_name'),
-			number:      val('dialplan_number'),
-			context:     val('dialplan_context'),
-			order:       val('dialplan_order'),
-			destination: val('dialplan_destination'),
-			enabled:     val('dialplan_enabled'),
-		};
+		savedMeta = getMetadataState();
 	}
 
 	// Parse XML from ACE and keep the visual tree in sync while typing.
@@ -2117,6 +2348,10 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			};
 			renderTree();
 			setSyncState('synced');
+			if (pendingXmlHistoryCommit && !historyRestoreInProgress) {
+				pendingXmlHistoryCommit = false;
+				pushHistorySnapshot();
+			}
 			return;
 		}
 
@@ -2125,6 +2360,10 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			tree = result.tree;
 			renderTree();
 			setSyncState('synced');
+			if (pendingXmlHistoryCommit && !historyRestoreInProgress) {
+				pendingXmlHistoryCommit = false;
+				pushHistorySnapshot();
+			}
 		} else {
 			setSyncState('error', result.error);
 		}
@@ -2378,6 +2617,8 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			} else if (e.data.type === 'xml-update') {
 				// Popup edited XML — update main editor
 				xmlPopoutWasEditing = true;
+				flushPendingHistorySnapshot();
+				pendingXmlHistoryCommit = true;
 				skipAceChange = true;
 				editor.setValue(e.data.xml, -1);
 				skipAceChange = false;
@@ -2626,10 +2867,12 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			deleteBtn.title = '<?php echo $text['message-last_regex'] ?? 'A regex condition requires at least one regex field'; ?>';
 		} else {
 			deleteBtn.onclick = function() {
+				flushPendingHistorySnapshot();
 				parentArray.splice(index, 1);
 				updateXmlFromTree();
 				renderTree();
 				updateGateConditionIndicators();
+				pushHistorySnapshot();
 			};
 		}
 		// Lint badge — floated at top-right corner of the node card; populated by runLinter() after renderTree()
@@ -2706,6 +2949,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 				btn.className = 'add-node-btn';
 				btn.innerHTML = '<i class="fas fa-plus"></i> ' + displayName;
 				btn.onclick = function() {
+					flushPendingHistorySnapshot();
 					if (!node.children) node.children = [];
 					// Only conditions are containers (regex child elements are not)
 					const isContainer = (actualType === 'condition');
@@ -2734,6 +2978,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 					updateXmlFromTree();
 					renderTree();
 					updateGateConditionIndicators();
+					pushHistorySnapshot();
 				};
 				addBtns.appendChild(btn);
 			});
@@ -2747,6 +2992,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	// Create enabled toggle switch
 	// Toggle node enabled/disabled via drag bar click
 	function toggleNodeEnabled(node, nodeElement) {
+		flushPendingHistorySnapshot();
 		const isEnabled = !node.enabled;
 		node.enabled = isEnabled;
 
@@ -2771,6 +3017,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 		updateXmlFromTree();
 		renderTree(); // Re-render to update child states
 		updateGateConditionIndicators();
+		pushHistorySnapshot();
 	}
 
 	// Recursively disable all children (simulates clicking off their toggles)
@@ -2831,11 +3078,13 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 		}
 
 		btn.addEventListener('click', function() {
+			flushPendingHistorySnapshot();
 			const cycle = { '': 'true', 'true': 'false', 'false': '' };
 			const newVal = cycle[state.value] ?? '';
 			state.value = newVal;
 			apply(newVal);
 			onChange(newVal);
+			pushHistorySnapshot();
 		});
 
 		apply(currentValue);
@@ -2886,6 +3135,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			btn.innerHTML = lbl;
 			if (ttl) btn.title = ttl;
 			btn.addEventListener('click', function() {
+				flushPendingHistorySnapshot();
 				if (allowDeselect && btn.classList.contains('active')) {
 					btn.classList.remove('active');
 					onChange('');
@@ -2896,6 +3146,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 					btn.classList.add('active');
 					onChange(val);
 				}
+				pushHistorySnapshot();
 			});
 			group.appendChild(btn);
 		});
@@ -2926,6 +3177,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			});
 			input.onchange = function() {
 				onChange(this.value);
+				scheduleHistorySnapshot();
 			};
 			wrapper.appendChild(input);
 		} else if (name === 'application' && availableApplications.length > 0) {
@@ -2979,6 +3231,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 						validateApplicationInput(input, app);
 						onChange(app);
 						dropdown.classList.remove('visible');
+						scheduleHistorySnapshot();
 					};
 
 					dropdown.appendChild(item);
@@ -3015,6 +3268,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 				showDropdown(this.value);
 				validateApplicationInput(this, this.value);
 				onChange(this.value);
+				scheduleHistorySnapshot();
 			};
 
 			input.onblur = function() {
@@ -3051,6 +3305,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 						validateApplicationInput(input, appName);
 						onChange(appName);
 						dropdown.classList.remove('visible');
+						scheduleHistorySnapshot();
 					}
 				} else if (e.key === 'Escape') {
 					dropdown.classList.remove('visible');
@@ -3110,6 +3365,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 						input.value = field.value;
 						onChange(field.value);
 						dropdown.classList.remove('visible');
+						scheduleHistorySnapshot();
 					};
 
 					dropdown.appendChild(item);
@@ -3125,6 +3381,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 			input.oninput = function() {
 				showFieldDropdown(this.value);
 				onChange(this.value);
+				scheduleHistorySnapshot();
 			};
 
 			input.onblur = function() {
@@ -3160,6 +3417,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 						input.value = fieldValue;
 						onChange(fieldValue);
 						dropdown.classList.remove('visible');
+						scheduleHistorySnapshot();
 					}
 				} else if (e.key === 'Escape') {
 					dropdown.classList.remove('visible');
@@ -3177,9 +3435,11 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 
 			input.onchange = function() {
 				onChange(this.value);
+				scheduleHistorySnapshot();
 			};
 			input.oninput = function() {
 				onChange(this.value);
+				scheduleHistorySnapshot();
 			};
 
 			wrapper.appendChild(input);
@@ -3270,6 +3530,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	function handleDrop(e) {
 		e.preventDefault();
 		e.stopPropagation();
+		flushPendingHistorySnapshot();
 
 		const targetNodeEl = e.target.closest('.dialplan-node');
 		if (!targetNodeEl || !draggedNodeData || targetNodeEl === draggedNode) {
@@ -3353,6 +3614,8 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 
 		updateXmlFromTree();
 		renderTree();
+		updateGateConditionIndicators();
+		pushHistorySnapshot();
 		handleDragEnd(e);
 	}
 
@@ -3394,6 +3657,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	function handleChildrenDrop(e) {
 		e.preventDefault();
 		e.stopPropagation();
+		flushPendingHistorySnapshot();
 
 		const childrenDiv = e.currentTarget.classList.contains('dialplan-node-children')
 			? e.currentTarget
@@ -3426,6 +3690,8 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 
 		updateXmlFromTree();
 		renderTree();
+		updateGateConditionIndicators();
+		pushHistorySnapshot();
 		handleDragEnd(e);
 	}
 
@@ -3488,6 +3754,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 
 	// Add node to extension root
 	window.addNode = function(type, containerId) {
+		flushPendingHistorySnapshot();
 		if (!tree) {
 			tree = {
 				type: 'extension',
@@ -3521,6 +3788,8 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 		tree.children.push(newNode);
 		updateXmlFromTree();
 		renderTree();
+		updateGateConditionIndicators();
+		pushHistorySnapshot();
 	};
 
 	// Toggle XML panel visibility
@@ -3823,6 +4092,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 
 	// Form submission handling
 	document.getElementById('frm').addEventListener('submit', function(e) {
+		flushPendingHistorySnapshot();
 		keepPopoutOpenOnUnload = true;
 
 		// Always use XML from ACE editor
@@ -3864,6 +4134,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	// Confirm save after modal
 	window.confirmSave = function() {
 		modal_close();
+		flushPendingHistorySnapshot();
 		keepPopoutOpenOnUnload = true;
 		document.getElementById('dialplan_xml_hidden').value = editor.getValue();
 		recordSavedBaseline();
@@ -3882,6 +4153,18 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 
 	// Ctrl+S handling
 	document.addEventListener('keydown', function(e) {
+		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+			e.preventDefault();
+			window.undoHistory();
+			return;
+		}
+
+		if ((e.ctrlKey || e.metaKey) && ((e.shiftKey && e.key.toLowerCase() === 'z') || e.key.toLowerCase() === 'y')) {
+			e.preventDefault();
+			window.redoHistory();
+			return;
+		}
+
 		if ((e.ctrlKey || e.metaKey) && e.key === 's') {
 			e.preventDefault();
 			document.getElementById('btn_save').click();
@@ -3911,18 +4194,39 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 	});
 
 	// Track changes to metadata fields not reflected in the XML (number, context, order)
-	['dialplan_number', 'dialplan_context'].forEach(function(id) {
+	['dialplan_number', 'dialplan_context', 'dialplan_description'].forEach(function(id) {
 		const el = document.getElementById(id);
-		if (el) el.addEventListener('input', checkDirtyState);
+		if (el) {
+			el.addEventListener('input', function() {
+				checkDirtyState();
+				scheduleHistorySnapshot();
+			});
+		}
 	});
 	const orderEl = document.getElementById('dialplan_order');
-	if (orderEl) orderEl.addEventListener('change', checkDirtyState);
+	if (orderEl) {
+		orderEl.addEventListener('change', function() {
+			checkDirtyState();
+			scheduleHistorySnapshot();
+		});
+	}
+	const domainEl = document.getElementById('domain_uuid');
+	if (domainEl) {
+		domainEl.addEventListener('change', function() {
+			checkDirtyState();
+			scheduleHistorySnapshot();
+		});
+	}
 
 	// Sync dialplan name with extension name
 	document.getElementById('dialplan_name').addEventListener('input', function() {
 		if (tree) {
 			tree.attributes.name = this.value;
 			updateXmlFromTree();
+			scheduleHistorySnapshot();
+		} else {
+			checkDirtyState();
+			scheduleHistorySnapshot();
 		}
 	});
 
@@ -3930,6 +4234,10 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 		if (tree) {
 			tree.attributes.continue = this.value;
 			updateXmlFromTree();
+			scheduleHistorySnapshot();
+		} else {
+			checkDirtyState();
+			scheduleHistorySnapshot();
 		}
 	});
 
@@ -3938,6 +4246,7 @@ $dialplan_lint_rules_version = md5($dialplan_lint_rules_hash_input);
 		initEditor();
 		initXmlChannel();
 		announceMainReady();
+		updateHistoryButtons();
 	});
 })();
 </script>
